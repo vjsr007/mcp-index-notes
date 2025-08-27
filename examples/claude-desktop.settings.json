@@ -1,0 +1,15 @@
+{
+  "mcpServers": {
+    "notes-index": {
+      "command": "node",
+      "args": [
+        "C:\\projects\\mcp-index-notes\\dist\\mcp.js"
+      ],
+      "env": {
+        "DB_PATH": "C:\\projects\\mcp-index-notes\\data\\notes.db",
+        "LOG_LEVEL": "info",
+        "LOG_PRETTY": "true"
+      }
+    }
+  }
+}

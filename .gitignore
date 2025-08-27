@@ -1,0 +1,27 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+/dist/
+*.tsbuildinfo
+
+# Logs
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+
+# Environment
+.env
+.env.*.local
+
+# Local data/backup artifacts
+/data/
+/backups/
+
+# OS junk
+.DS_Store
+Thumbs.db
+
+# IDE
+# Keep common VS Code project files if present
+# .vscode/
