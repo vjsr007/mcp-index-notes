@@ -38,6 +38,12 @@ Graph tools:
 - graph-import-from-notes: Build graph from existing notes (note->key, note->tags)
 - graph-stats: Node/edge counts
 
+Image tools:
+- image-upsert: Store an image (base64 or file path) under a key
+- image-get: Retrieve images by id or key (optionally include base64 data)
+- image-delete: Delete single image by id or all images under a key
+- image-export: Export stored images (by id or key) to files on disk
+
 ## Quick start
 
 1) Install deps
@@ -274,6 +280,44 @@ Call tool graph-neighbors with { id: "node1" }
 Call tool graph-path with { from: "node1", to: "node2" }
 ```
 Expected result: Graph operations as described
+
+### Store an Image (base64)
+```
+Call tool image-upsert with { "key": "diagram.arch", "data": "<BASE64>", "mime": "image/png" }
+```
+Returns: `{ "id": ... }`
+
+### Store an Image (file path)
+```
+Call tool image-upsert with { "key": "diagram.arch", "file": "C:/path/to/diagram.png" }
+```
+
+### Get Images By Key (metadata only)
+```
+Call tool image-get with { "key": "diagram.arch" }
+```
+
+### Get Images Including Data
+```
+Call tool image-get with { "key": "diagram.arch", "includeData": true, "limit": 1 }
+```
+Returns array with base64 `data` field.
+
+### Delete Image
+```
+Call tool image-delete with { "id": 5 }
+```
+
+### Delete All Images Under a Key
+```
+Call tool image-delete with { "key": "diagram.arch" }
+```
+
+### Export Images to Files
+```
+Call tool image-export with { "key": "diagram.arch", "dir": "C:/tmp/diagrams" }
+```
+Returns list of written file paths.
 
 If your client shows a tools list, you should see all tools from this server.
 

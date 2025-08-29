@@ -1,7 +1,7 @@
 import fs from 'fs';
 import path from 'path';
 import { createRequire } from 'module';
-import type { Note } from './types.js';
+import type { Note, ImageRecord } from './types.js';
 import { logger } from './logger.js';
 
 export interface DBOptions {
@@ -67,7 +67,20 @@ export class NotesDB {
         VALUES (new.id, new.content, new.key, new.tags, new.metadata);
       END;`;
 
-    this.db.exec([createNotes, createIndexKey, createFts, createFtsTriggers].join('\n'));
+    const createImages = `
+      CREATE TABLE IF NOT EXISTS images (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        key TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        metadata TEXT NOT NULL DEFAULT '{}',
+        data BLOB NOT NULL,
+        created_at TEXT NOT NULL DEFAULT (datetime('now'))
+      );
+      CREATE INDEX IF NOT EXISTS idx_images_key ON images(key);
+    `;
+
+    this.db.exec([createNotes, createIndexKey, createFts, createFtsTriggers, createImages].join('\n'));
   }
 
   upsert(note: Note & { id?: number }): number {
@@ -173,6 +186,55 @@ export class NotesDB {
       metadata: JSON.parse(row.metadata || '{}'),
       created_at: row.created_at,
       updated_at: row.updated_at,
+    };
+  }
+
+  // Image operations
+  insertImage(img: { key: string; mime: string; data: Buffer; metadata?: any }): number {
+    const stmt = this.db.prepare(`INSERT INTO images (key, mime, size, metadata, data) VALUES (@key, @mime, @size, @metadata, @data)`);
+    const info = stmt.run({
+      key: img.key,
+      mime: img.mime,
+      size: img.data.length,
+      metadata: JSON.stringify(img.metadata ?? {}),
+      data: img.data,
+    });
+    return Number(info.lastInsertRowid);
+  }
+
+  getImagesByKey(key: string, limit = 10, includeData = false): ImageRecord[] {
+    const rows = this.db
+      .prepare(`SELECT id, key, mime, size, metadata, created_at ${includeData ? ', data' : ''} FROM images WHERE key = ? ORDER BY created_at DESC LIMIT ?`)
+      .all(key, limit);
+    return rows.map((r: any) => this.rowToImage(r, includeData));
+  }
+
+  getImageById(id: number, includeData = false): ImageRecord | null {
+    const row = this.db
+      .prepare(`SELECT id, key, mime, size, metadata, created_at ${includeData ? ', data' : ''} FROM images WHERE id = ?`)
+      .get(id);
+    return row ? this.rowToImage(row, includeData) : null;
+  }
+
+  deleteImageById(id: number): boolean {
+    const info = this.db.prepare(`DELETE FROM images WHERE id = ?`).run(id);
+    return info.changes > 0;
+  }
+
+  deleteImagesByKey(key: string): number {
+    const info = this.db.prepare(`DELETE FROM images WHERE key = ?`).run(key);
+    return info.changes;
+  }
+
+  private rowToImage(row: any, includeData: boolean): ImageRecord {
+    return {
+      id: row.id,
+      key: row.key,
+      mime: row.mime,
+      size: row.size,
+      metadata: JSON.parse(row.metadata || '{}'),
+      created_at: row.created_at,
+      ...(includeData && row.data ? { data: Buffer.isBuffer(row.data) ? row.data.toString('base64') : Buffer.from(row.data).toString('base64') } : {}),
     };
   }
 }

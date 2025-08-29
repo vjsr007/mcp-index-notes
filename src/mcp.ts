@@ -3,7 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { Tool, CallToolRequestSchema, CallToolResult, ListToolsRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
-import { DeleteSchema, QuerySchema, RestoreSchema, UpsertSchema, GraphNodeSchema, GraphNeighborsSchema, GraphPathSchema, GraphImportSchema, GraphStatsSchema } from './types.js';
+import { DeleteSchema, QuerySchema, RestoreSchema, UpsertSchema, GraphNodeSchema, GraphNeighborsSchema, GraphPathSchema, GraphImportSchema, GraphStatsSchema, ImageUpsertSchema, ImageGetSchema, ImageDeleteSchema, ImageExportSchema } from './types.js';
 import { INotesStore } from './store.js';
 import { LiteNotesStore } from './store.lite.js';
 import { writeBackup, readBackup } from './backup.js';
@@ -53,6 +53,55 @@ const tools: Tool[] = [
       },
       required: ['key', 'content'],
       additionalProperties: true,
+    },
+  },
+  {
+    name: 'image-upsert',
+    description: 'Store an image (base64 data or file path) under a key. Returns image id.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        key: { type: 'string' },
+        data: { type: 'string', description: 'Base64-encoded image data (no data: prefix)' },
+        file: { type: 'string', description: 'Path to image file to read if data not provided' },
+        mime: { type: 'string', description: 'MIME type e.g. image/png if data provided' },
+        metadata: { type: 'object' },
+      },
+      required: ['key'],
+    },
+  },
+  {
+    name: 'image-get',
+    description: 'Retrieve images by id or key. Optionally include base64 data.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number' },
+        key: { type: 'string' },
+        limit: { type: 'number' },
+        includeData: { type: 'boolean' },
+      },
+    },
+  },
+  {
+    name: 'image-delete',
+    description: 'Delete an image by id or all images by key.',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'number' }, key: { type: 'string' } },
+    },
+  },
+  {
+    name: 'image-export',
+    description: 'Export images (by id or key) to files. Returns file paths.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number' },
+        key: { type: 'string' },
+        limit: { type: 'number' },
+        dir: { type: 'string' },
+      },
     },
   },
   {
@@ -233,6 +282,102 @@ server.setRequestHandler(CallToolRequestSchema, async (req): Promise<CallToolRes
         GraphStatsSchema.parse(args ?? {});
         const res = graph.stats();
         return { content: [{ type: 'text', text: JSON.stringify(res) }] };
+      }
+      case 'image-upsert': {
+        const parsed = ImageUpsertSchema.parse(args);
+        if (!('insertImage' in (db as any))) {
+          throw new Error('Image storage not supported in current store implementation');
+        }
+        const fs = await import('fs');
+        let raw: Buffer | null = null;
+        if (parsed.data) {
+          raw = Buffer.from(parsed.data, 'base64');
+        } else if (parsed.file) {
+            raw = fs.readFileSync(parsed.file);
+        } else {
+          throw new Error('Provide data (base64) or file');
+        }
+        // crude mime guess if not provided
+        let mime = parsed.mime;
+        if (!mime && parsed.file) {
+          const ext = parsed.file.toLowerCase();
+          if (ext.endsWith('.png')) mime = 'image/png';
+          else if (ext.endsWith('.jpg') || ext.endsWith('.jpeg')) mime = 'image/jpeg';
+          else if (ext.endsWith('.gif')) mime = 'image/gif';
+          else if (ext.endsWith('.webp')) mime = 'image/webp';
+          else mime = 'application/octet-stream';
+        }
+        if (!mime) mime = 'application/octet-stream';
+        const id = (db as any).insertImage({ key: parsed.key, mime, data: raw!, metadata: parsed.metadata });
+        return { content: [{ type: 'text', text: JSON.stringify({ id }) }] };
+      }
+      case 'image-get': {
+        const parsed = ImageGetSchema.parse(args ?? {});
+        if (!('getImageById' in (db as any))) {
+          throw new Error('Image storage not supported in current store implementation');
+        }
+        let result: any = null;
+        if (parsed.id) {
+          result = (db as any).getImageById(parsed.id, parsed.includeData);
+        } else if (parsed.key) {
+          result = (db as any).getImagesByKey(parsed.key, parsed.limit, parsed.includeData);
+        } else {
+          result = [];
+        }
+        return { content: [{ type: 'text', text: JSON.stringify(result) }] };
+      }
+      case 'image-delete': {
+        const parsed = ImageDeleteSchema.parse(args ?? {});
+        if (!('deleteImageById' in (db as any))) {
+          throw new Error('Image storage not supported in current store implementation');
+        }
+        if (parsed.id) {
+          const ok = (db as any).deleteImageById(parsed.id);
+          return { content: [{ type: 'text', text: JSON.stringify({ ok }) }] };
+        }
+        if (parsed.key) {
+          const deleted = (db as any).deleteImagesByKey(parsed.key);
+          return { content: [{ type: 'text', text: JSON.stringify({ deleted }) }] };
+        }
+        return { content: [{ type: 'text', text: JSON.stringify({ error: 'Provide id or key' }) }] };
+      }
+      case 'image-export': {
+        const parsed = ImageExportSchema.parse(args ?? {});
+        if (!('getImageById' in (db as any))) {
+          throw new Error('Image storage not supported in current store implementation');
+        }
+        const fs = await import('fs');
+        const path = await import('path');
+        const exportDir = parsed.dir ? path.resolve(parsed.dir) : path.resolve(process.cwd(), 'exported-images');
+        if (!fs.existsSync(exportDir)) fs.mkdirSync(exportDir, { recursive: true });
+        let images: any[] = [];
+        if (parsed.id) {
+          const one = (db as any).getImageById(parsed.id, true);
+          if (one) images = [one];
+        } else if (parsed.key) {
+          images = (db as any).getImagesByKey(parsed.key, parsed.limit, true);
+        } else {
+          return { content: [{ type: 'text', text: JSON.stringify({ error: 'Provide id or key' }) }] };
+        }
+        const files: string[] = [];
+        for (const img of images) {
+          if (!img.data) continue;
+            const safeKey = img.key.replace(/[^a-zA-Z0-9._-]+/g, '_').slice(0, 60);
+            const ext = (() => {
+              switch (img.mime) {
+                case 'image/png': return '.png';
+                case 'image/jpeg': return '.jpg';
+                case 'image/gif': return '.gif';
+                case 'image/webp': return '.webp';
+                default: return '.bin';
+              }
+            })();
+            const filename = `${safeKey}-${img.id}${ext}`;
+            const outPath = path.join(exportDir, filename);
+            fs.writeFileSync(outPath, Buffer.from(img.data, 'base64'));
+            files.push(outPath);
+        }
+        return { content: [{ type: 'text', text: JSON.stringify({ dir: exportDir, files }) }] };
       }
       default:
         return { content: [{ type: 'text', text: JSON.stringify({ error: `Unknown tool ${name}` }) }] };

@@ -46,19 +46,30 @@ export class SqliteGraphStore implements IGraphStore {
     this.db = new Database(this.dbPath);
     this.db.pragma('journal_mode = WAL');
     this.db.pragma('synchronous = NORMAL');
+    this.db.pragma('foreign_keys = ON');
     this.migrate();
   }
 
   private migrate() {
     logger.info('Running graph migrations');
     const stmts = [
-      `CREATE TABLE IF NOT EXISTS graph_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, type TEXT, props TEXT NOT NULL DEFAULT '{}');`,
-      `CREATE UNIQUE INDEX IF NOT EXISTS ux_graph_nodes_label_type ON graph_nodes(label, COALESCE(type, ''));`,
-      `CREATE TABLE IF NOT EXISTS graph_edges (id INTEGER PRIMARY KEY AUTOINCREMENT, src INTEGER NOT NULL, dst INTEGER NOT NULL, type TEXT, props TEXT NOT NULL DEFAULT '{}', UNIQUE(src, dst, COALESCE(type, '')) ON CONFLICT IGNORE, FOREIGN KEY(src) REFERENCES graph_nodes(id) ON DELETE CASCADE, FOREIGN KEY(dst) REFERENCES graph_nodes(id) ON DELETE CASCADE);`,
+      // Ensure tables (type columns may already exist; we normalize values after)
+      `CREATE TABLE IF NOT EXISTS graph_nodes (id INTEGER PRIMARY KEY AUTOINCREMENT, label TEXT NOT NULL, type TEXT DEFAULT '', props TEXT NOT NULL DEFAULT '{}');`,
+      `CREATE TABLE IF NOT EXISTS graph_edges (id INTEGER PRIMARY KEY AUTOINCREMENT, src INTEGER NOT NULL, dst INTEGER NOT NULL, type TEXT DEFAULT '', props TEXT NOT NULL DEFAULT '{}', UNIQUE(src, dst, type) ON CONFLICT IGNORE, FOREIGN KEY(src) REFERENCES graph_nodes(id) ON DELETE CASCADE, FOREIGN KEY(dst) REFERENCES graph_nodes(id) ON DELETE CASCADE);`,
+      // Normalize NULL types to empty string for uniqueness
+      `UPDATE graph_nodes SET type='' WHERE type IS NULL;`,
+      `UPDATE graph_edges SET type='' WHERE type IS NULL;`,
+      // Create indexes without expressions
+      `CREATE UNIQUE INDEX IF NOT EXISTS ux_graph_nodes_label_type ON graph_nodes(label, type);`,
       `CREATE INDEX IF NOT EXISTS ix_graph_edges_src ON graph_edges(src);`,
       `CREATE INDEX IF NOT EXISTS ix_graph_edges_dst ON graph_edges(dst);`,
     ];
-    this.db.exec(stmts.join('\n'));
+    try {
+      this.db.exec(stmts.join('\n'));
+    } catch (e: any) {
+      logger.error({ e, message: e?.message }, 'Graph migrations failed');
+      throw e;
+    }
   }
 
   upsertNode(node: GraphNode): number {
@@ -80,17 +91,18 @@ export class SqliteGraphStore implements IGraphStore {
   }
 
   getNodeByLabel(label: string, type?: string): GraphNode | null {
-    const row = this.db.prepare(`SELECT * FROM graph_nodes WHERE label=? AND COALESCE(type,'')=COALESCE(?, '')`).get(label, type ?? null);
+  const t = type ?? '';
+  const row = this.db.prepare(`SELECT * FROM graph_nodes WHERE label=? AND type=?`).get(label, t);
     return row ? { id: row.id, label: row.label, type: row.type ?? undefined, props: JSON.parse(row.props || '{}') } : null;
   }
 
   addEdge(edge: Omit<GraphEdge, 'id'>): number {
     const props = JSON.stringify(edge.props ?? {});
     const info = this.db.prepare(`INSERT OR IGNORE INTO graph_edges(src, dst, type, props) VALUES (?, ?, ?, ?)`)
-      .run(edge.src, edge.dst, edge.type ?? null, props);
+      .run(edge.src, edge.dst, edge.type ?? '', props);
     if (info.changes === 0) {
       // fetch existing
-      const row = this.db.prepare(`SELECT id FROM graph_edges WHERE src=? AND dst=? AND COALESCE(type,'')=COALESCE(?, '')`).get(edge.src, edge.dst, edge.type ?? null);
+      const row = this.db.prepare(`SELECT id FROM graph_edges WHERE src=? AND dst=? AND type=?`).get(edge.src, edge.dst, edge.type ?? '');
       return row?.id ?? 0;
     }
     return Number(info.lastInsertRowid);
