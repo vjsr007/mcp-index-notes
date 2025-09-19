@@ -9,6 +9,13 @@
     "start": "node dist/mcp.js",
     "dev": "tsx src/mcp.ts",
     "smoke": "tsx src/smoke.ts",
+    "test-resources": "tsx src/test-resources.ts",
+    "demo-resources": "tsx src/demo-resources.ts",
+    "demo-prompts": "tsx src/demo-prompts.ts",
+    "demo-advanced": "tsx src/demo-advanced-tools.ts",
+    "demo-streaming": "tsx src/demo-streaming.ts",
+    "demo-config": "tsx demo-config.ts",
+    "example-prompt-usage": "tsx src/example-prompt-usage.ts",
     "lint": "echo 'No linter configured'"
   },
   "dependencies": {
