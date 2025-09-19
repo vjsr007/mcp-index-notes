@@ -1,4 +1,6 @@
----
+# MCP Index Notes
+
+A comprehensive MCP server for indexing, retrieving, and managing notes with advanced AI capabilities. Built with TypeScript, featuring SQLite (FTS5) storage, knowledge graphs, image management, and intelligent analysis tools.
 
 ## Quick Tip: Copy-Paste Text and Images
 
@@ -7,9 +9,6 @@ You can simply copy and paste text or images into your favorite chat client (lik
 > Add all this to my notes
 
 The LLM will index the information as it decides, using its own context and capabilities. This makes it easy to capture and organize information without manual formatting or tool calls.
-# MCP Index Notes
-
-A comprehensive MCP server for indexing, retrieving, and managing notes with advanced AI capabilities. Built with TypeScript, featuring SQLite (FTS5) storage, knowledge graphs, image management, and intelligent analysis tools.
 
 ## 🚀 Enhanced Features
 
@@ -402,8 +401,3 @@ This MCP server has been systematically enhanced from a basic note indexing tool
 - **Modern MCP**: Full implementation of Resources, Prompts, Tools
 - **Production Ready**: Comprehensive error handling and validation
 - **Extensible**: Modular architecture for future enhancements
-
----
-
-*Your simple note indexer is now a powerful, intelligent knowledge management system! 🎉*
-Showcases NLP analysis tools including auto-tagging, duplicate detection, sentiment analysis, entity extraction, clustering, and intelligent recommendations.
